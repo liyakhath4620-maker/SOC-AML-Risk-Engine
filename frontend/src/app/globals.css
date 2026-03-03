@@ -1,0 +1,283 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-bg-primary: #0a0a0a;
+    --color-bg-secondary: #111827;
+    --color-bg-tertiary: #1f2937;
+    --color-bg-card: #111827;
+    --color-bg-elevated: #1f2937;
+    --color-border: #1f2937;
+    --color-border-bright: #374151;
+    --color-text-primary: #f9fafb;
+    --color-text-secondary: #d1d5db;
+    --color-text-muted: #9ca3af;
+    --color-accent-blue: #3b82f6;
+    --color-accent-red: #ef4444;
+    --color-accent-green: #10b981;
+    --color-accent-amber: #f59e0b;
+    --color-accent-purple: #8b5cf6;
+    --color-accent-cyan: #06b6d4;
+    --color-neon-orange: #ff6b00;
+    --sidebar-width: 64px;
+    --sidebar-expanded: 200px;
+  }
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html,
+  body {
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--color-bg-tertiary);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border-bright);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-accent-blue);
+  }
+}
+
+/* ── Keyframe Animations ─────────────────────────── */
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    box-shadow: 0 0 8px rgba(37, 99, 235, 0.2);
+  }
+
+  50% {
+    box-shadow: 0 0 20px rgba(37, 99, 235, 0.4);
+  }
+}
+
+@keyframes glow-red {
+
+  0%,
+  100% {
+    box-shadow: 0 0 10px rgba(220, 38, 38, 0.15);
+  }
+
+  50% {
+    box-shadow: 0 0 25px rgba(220, 38, 38, 0.35);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(20px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-up {
+  from {
+    transform: translateY(14px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-14px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes freeze-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5);
+  }
+
+  70% {
+    box-shadow: 0 0 0 12px rgba(220, 38, 38, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes float-in {
+  from {
+    transform: translateY(10px) scale(0.98);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes gauge-fill {
+  from {
+    stroke-dashoffset: 283;
+  }
+}
+
+@keyframes number-glow {
+
+  0%,
+  100% {
+    text-shadow: 0 0 12px currentColor;
+  }
+
+  50% {
+    text-shadow: 0 0 24px currentColor, 0 0 40px currentColor;
+  }
+}
+
+@keyframes status-blink {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* ── Card Panels ─────────────────────────────────── */
+.glass-panel {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+}
+
+.glass-panel-elevated {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+}
+
+/* ── Tab Styles ──────────────────────────────────── */
+.tab-active {
+  color: var(--color-neon-orange);
+  border-bottom: 2px solid var(--color-neon-orange);
+  background: rgba(255, 107, 0, 0.1);
+}
+
+.tab-inactive {
+  color: var(--color-text-muted);
+  border-bottom: 2px solid transparent;
+}
+
+.tab-inactive:hover {
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ── Recharts Overrides ──────────────────────────── */
+.recharts-polar-grid-concentric-polygon {
+  stroke: var(--color-border) !important;
+}
+
+.recharts-polar-angle-axis-tick-value {
+  fill: var(--color-text-muted) !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 10px !important;
+}
+
+/* ── Sidebar ─────────────────────────────────────── */
+.sidebar-nav {
+  width: var(--sidebar-width);
+  transition: width 0.2s ease;
+}
+
+.sidebar-nav:hover {
+  width: var(--sidebar-expanded);
+}
+
+.sidebar-nav .nav-label {
+  opacity: 0;
+  width: 0;
+  overflow: hidden;
+  transition: opacity 0.15s ease, width 0.2s ease;
+  white-space: nowrap;
+}
+
+.sidebar-nav:hover .nav-label {
+  opacity: 1;
+  width: auto;
+  margin-left: 12px;
+}
+
+/* ── Frozen Row ──────────────────────────────────── */
+.row-frozen {
+  background: rgba(239, 68, 68, 0.1) !important;
+  border-left: 3px solid var(--color-accent-red) !important;
+}
+
+/* ── Hardware Terminal Scanlines ─────────────────── */
+.scanlines {
+  position: relative;
+}
+
+.scanlines::before {
+  content: " ";
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  background: linear-gradient(to bottom,
+      rgba(255, 255, 255, 0),
+      rgba(255, 255, 255, 0) 50%,
+      rgba(0, 0, 0, 0.1) 50%,
+      rgba(0, 0, 0, 0.1));
+  background-size: 100% 4px;
+  z-index: 9999;
+  pointer-events: none;
+}
