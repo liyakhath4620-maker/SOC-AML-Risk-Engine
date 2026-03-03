@@ -8,6 +8,7 @@ import AttackSurfaceRadar from "@/components/AttackSurfaceRadar";
 import ThreatMetadataPanel from "@/components/ThreatMetadataPanel";
 import CVSSRiskScore from "@/components/CVSSRiskScore";
 import AffectedEntitiesTable from "@/components/AffectedEntitiesTable";
+import FrozenAccountsPanel from "@/components/FrozenAccountsPanel";
 import AlertFeed from "@/components/AlertFeed";
 import ThreatNarrative from "@/components/ThreatNarrative";
 import SuspiciousAccounts from "@/components/SuspiciousAccounts";
@@ -74,6 +75,16 @@ export default function DashboardPage() {
     );
   }, []);
 
+  const clearAllThreats = useCallback(async () => {
+    if (!confirm("Clear all threats and reset to idle? This will delete all attack logs.")) return;
+    try {
+      await fetch("http://localhost:8000/api/v1/clear-threats", { method: "POST" });
+      setThreats([]);
+      setSelectedThreat(null);
+      setTimeout(fetchThreats, 500);
+    } catch { /* ignore */ }
+  }, [fetchThreats]);
+
   return (
     <DashboardShell activeTab={activeTab} onTabChange={setActiveTab}>
       <div className="h-[calc(100vh-110px)] relative flex gap-3">
@@ -90,6 +101,21 @@ export default function DashboardPage() {
                 className="h-full grid grid-cols-12 grid-rows-[auto_1fr] gap-3 overflow-auto pr-1"
                 style={{ animation: "fade-in 0.3s ease-out" }}
               >
+                {/* Clear Button */}
+                <div className="col-span-12 flex justify-end">
+                  <button
+                    onClick={clearAllThreats}
+                    className="px-4 py-1.5 rounded-lg text-xs font-bold tracking-wider uppercase transition-all duration-200 cursor-pointer"
+                    style={{
+                      background: threats.length > 0 ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)",
+                      border: `1px solid ${threats.length > 0 ? "rgba(239,68,68,0.4)" : "rgba(34,197,94,0.4)"}`,
+                      color: threats.length > 0 ? "#ef4444" : "#22c55e",
+                      fontFamily: "JetBrains Mono, monospace",
+                    }}
+                  >
+                    {threats.length > 0 ? `🔴 ${threats.length} Active — Clear All Threats` : "✅ System Idle — No Threats"}
+                  </button>
+                </div>
                 {/* Top Row: Radar + Metadata + CVSS */}
                 <div className="col-span-5">
                   <AttackSurfaceRadar threats={threats} />
@@ -118,53 +144,115 @@ export default function DashboardPage() {
                   <div className="flex-1 overflow-y-auto divide-y divide-gray-800">
                     {threats.map((t, idx) => {
                       const amount = t.threat_data?.transaction_details?.amount || 0;
+                      const breach = t.threat_data?.breach_details || {};
+                      const isExpanded = selectedThreat?.id === t.id;
                       return (
-                        <button
+                        <div
                           key={t.id}
-                          onClick={() => setSelectedThreat(t)}
-                          className={`w-full text-left px-4 py-3 transition-all duration-200 cursor-pointer ${selectedThreat?.id === t.id
-                            ? "bg-blue-900/30 border-l-3 border-l-blue-400"
-                            : "hover:bg-gray-800/60"
-                            }`}
+                          className="transition-all duration-200"
                           style={{ animation: `slide-in-up 0.3s ease-out ${idx * 0.05}s both` }}
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold text-gray-100 truncate">{t.title}</p>
-                              <p className="text-[10px] text-gray-400 mt-0.5" style={{ fontFamily: "JetBrains Mono, monospace" }}>
-                                {t.id} • {formatINR(amount)}
-                              </p>
+                          <button
+                            onClick={() => setSelectedThreat(isExpanded ? null : t)}
+                            className={`w-full text-left px-4 py-3 transition-all duration-200 cursor-pointer ${isExpanded
+                              ? "bg-blue-900/30 border-l-3 border-l-blue-400"
+                              : "hover:bg-gray-800/60"
+                              }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-semibold text-gray-100 truncate">{t.title}</p>
+                                <p className="text-[10px] text-gray-400 mt-0.5" style={{ fontFamily: "JetBrains Mono, monospace" }}>
+                                  {t.id} • {formatINR(amount)}
+                                </p>
+                              </div>
+                              <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                                <span
+                                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${t.risk_level === "CRITICAL"
+                                    ? "bg-red-900/40 text-red-400 border border-red-700/50"
+                                    : t.risk_level === "HIGH"
+                                      ? "bg-amber-900/40 text-amber-400 border border-amber-700/50"
+                                      : "bg-blue-900/40 text-blue-400 border border-blue-700/50"
+                                    }`}
+                                  style={{ fontFamily: "JetBrains Mono, monospace" }}
+                                >
+                                  {t.risk_level}
+                                </span>
+                                <span className="text-gray-500 text-[10px]" style={{ transform: isExpanded ? "rotate(180deg)" : "rotate(0)", display: "inline-block", transition: "transform 0.2s" }}>▼</span>
+                              </div>
                             </div>
-                            <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                              <span
-                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${t.risk_level === "CRITICAL"
-                                  ? "bg-red-900/40 text-red-400 border border-red-700/50"
-                                  : t.risk_level === "HIGH"
-                                    ? "bg-amber-900/40 text-amber-400 border border-amber-700/50"
-                                    : "bg-blue-900/40 text-blue-400 border border-blue-700/50"
-                                  }`}
-                                style={{ fontFamily: "JetBrains Mono, monospace" }}
-                              >
-                                {t.risk_level}
-                              </span>
-                              <select
-                                value={t.status}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  handleStatusChange(t.id, e.target.value);
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="text-[9px] bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-gray-300 cursor-pointer"
-                                style={{ fontFamily: "JetBrains Mono, monospace" }}
-                              >
-                                <option>Pending Review</option>
-                                <option>Investigating</option>
-                                <option>Confirmed Mule Ring</option>
-                                <option>Dismissed</option>
-                              </select>
+                          </button>
+
+                          {/* ── Expanded Detail Panel ── */}
+                          {isExpanded && (
+                            <div className="px-4 py-3 bg-gray-950/80 border-t border-gray-800" style={{ animation: "fade-in 0.2s ease-out" }}>
+                              {/* Account & Attack Details */}
+                              <div className="grid grid-cols-2 gap-2 mb-3">
+                                <div className="bg-gray-800/50 rounded-lg p-2">
+                                  <p className="text-[8px] text-gray-500 uppercase tracking-wider" style={{ fontFamily: "JetBrains Mono, monospace" }}>Account</p>
+                                  <p className="text-[10px] text-amber-400 font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>{breach.account_id || "—"}</p>
+                                </div>
+                                <div className="bg-gray-800/50 rounded-lg p-2">
+                                  <p className="text-[8px] text-gray-500 uppercase tracking-wider" style={{ fontFamily: "JetBrains Mono, monospace" }}>IP Address</p>
+                                  <p className="text-[10px] text-red-400 font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>{breach.ip_address || "—"}</p>
+                                </div>
+                                <div className="bg-gray-800/50 rounded-lg p-2">
+                                  <p className="text-[8px] text-gray-500 uppercase tracking-wider" style={{ fontFamily: "JetBrains Mono, monospace" }}>Alert Type</p>
+                                  <p className="text-[10px] text-blue-400 font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>{breach.alert_type || "—"}</p>
+                                </div>
+                                <div className="bg-gray-800/50 rounded-lg p-2">
+                                  <p className="text-[8px] text-gray-500 uppercase tracking-wider" style={{ fontFamily: "JetBrains Mono, monospace" }}>Risk Score</p>
+                                  <p className="text-[10px] text-red-400 font-bold" style={{ fontFamily: "JetBrains Mono, monospace" }}>{((t.threat_data?.confidence_score || 0) * 100).toFixed(0)}%</p>
+                                </div>
+                              </div>
+
+                              {/* Description */}
+                              <div className="bg-gray-800/30 rounded-lg p-2 mb-3">
+                                <p className="text-[9px] text-gray-300 leading-relaxed" style={{ fontFamily: "JetBrains Mono, monospace" }}>
+                                  {breach.description || "No additional details available."}
+                                </p>
+                              </div>
+
+                              {/* Action Buttons */}
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); alert(`📞 Calling account holder for ${breach.account_id}...`); }}
+                                  className="flex-1 px-2 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider cursor-pointer transition-all hover:scale-[1.02]"
+                                  style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.4)", color: "#3b82f6", fontFamily: "JetBrains Mono, monospace" }}
+                                >
+                                  📞 Call
+                                </button>
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    if (!breach.account_id || breach.account_id === "—") return;
+                                    try {
+                                      await fetch("http://localhost:8000/api/v1/freeze-accounts", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ account_ids: [breach.account_id] }),
+                                      });
+                                      setSelectedThreat(null);
+                                      fetchThreats();
+                                      alert(`🧊 Account ${breach.account_id} has been FROZEN! Login & transfers blocked. Threat cleared.`);
+                                    } catch { alert("Failed to freeze account"); }
+                                  }}
+                                  className="flex-1 px-2 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider cursor-pointer transition-all hover:scale-[1.02]"
+                                  style={{ background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.4)", color: "#a855f7", fontFamily: "JetBrains Mono, monospace" }}
+                                >
+                                  🧊 Freeze
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); window.open(`mailto:?subject=SOC Alert: ${breach.alert_type} on ${breach.account_id}&body=Account ${breach.account_id} has been flagged for ${breach.alert_type}.%0AIP: ${breach.ip_address}%0ADetails: ${breach.description}`); }}
+                                  className="flex-1 px-2 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider cursor-pointer transition-all hover:scale-[1.02]"
+                                  style={{ background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.4)", color: "#22c55e", fontFamily: "JetBrains Mono, monospace" }}
+                                >
+                                  📧 Mail
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        </button>
+                          )}
+                        </div>
                       );
                     })}
                     {threats.length === 0 && (
@@ -237,6 +325,13 @@ export default function DashboardPage() {
             {activeTab === "mulemap" && (
               <div className="h-full overflow-hidden flex flex-col" style={{ animation: "fade-in 0.3s ease-out" }}>
                 <MuleAccountMap />
+              </div>
+            )}
+
+            {/* Frozen Accounts Tab */}
+            {activeTab === "frozen" && (
+              <div className="h-full overflow-hidden flex flex-col" style={{ animation: "fade-in 0.3s ease-out" }}>
+                <FrozenAccountsPanel />
               </div>
             )}
           </div> {/* end Tab Content */}

@@ -13,6 +13,7 @@ const NAV_ITEMS = [
     { id: "logs", icon: "☰", label: "Logs" },
     { id: "suspicious", icon: "⚠", label: "Suspicious" },
     { id: "mulemap", icon: "◎", label: "Mule Map" },
+    { id: "frozen", icon: "🧊", label: "Frozen" },
 ];
 
 interface DashboardShellProps {

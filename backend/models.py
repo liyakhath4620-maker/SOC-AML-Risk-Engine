@@ -118,6 +118,7 @@ class BankAccount(Base):
     ifsc = Column(String(15), default="DEMO0001234")
     city = Column(String(50), default="Chennai")
     is_under_attack = Column(Boolean, default=False)
+    is_frozen = Column(Boolean, default=False)
 
 
 class LiveAttackLog(Base):
@@ -153,4 +154,20 @@ class LoginVerification(Base):
     user_agent = Column(Text, nullable=True)
     status = Column(String(20), default="PENDING")  # PENDING, APPROVED, REJECTED
     responded_at = Column(DateTime, nullable=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class BankTransaction(Base):
+    """Real bank-to-bank transfer records."""
+    __tablename__ = "bank_transactions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tx_id = Column(String(50), unique=True, nullable=False, index=True)
+    from_account = Column(String(20), nullable=False, index=True)
+    from_name = Column(String(100), nullable=True)
+    to_account = Column(String(20), nullable=False, index=True)
+    to_name = Column(String(100), nullable=True)
+    amount = Column(Float, nullable=False)
+    method = Column(String(30), nullable=True)
+    status = Column(String(20), default="COMPLETED")
     timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))

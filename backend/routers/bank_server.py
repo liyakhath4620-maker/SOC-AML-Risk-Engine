@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from database import get_db
-from models import BankAccount, LiveAttackLog, LoginVerification
+from models import BankAccount, LiveAttackLog, LoginVerification, BankTransaction
 
 router = APIRouter(tags=["Bank Server Portal"])
 
@@ -200,6 +200,11 @@ async def login_account(req: LoginRequest, request: Request, db: Session = Depen
     ua = request.headers.get("User-Agent", "unknown")
 
     account = db.query(BankAccount).filter(BankAccount.login_username == req.username).first()
+
+    # Block frozen accounts
+    if account and account.is_frozen:
+        return JSONResponse(status_code=403, content={"error": f"Account {account.account_number} ({account.holder_name}) is FROZEN by SOC. Contact your bank."})
+
     if not account or account.login_password != req.password:
         # ── BRUTE FORCE DETECTION ──
         now = _time.time()
@@ -212,8 +217,12 @@ async def login_account(req: LoginRequest, request: Request, db: Session = Depen
             _log_attack(db, "BRUTE_FORCE", ip, ua,
                         target_account=target_acct,
                         target_holder=target_name,
-                        details=f"Brute force: {len(_failed_logins[ip])} failed logins in {BRUTE_FORCE_WINDOW//60}min from IP {ip}",
+                        details=f"Brute force attack on {target_name} (A/C: {target_acct}): {len(_failed_logins[ip])} failed logins in {BRUTE_FORCE_WINDOW//60}min from IP {ip}. Username attempted: {req.username}",
                         status="DETECTED", risk_score=0.88)
+            # Mark account as under attack so it shows in the dashboard
+            if account:
+                account.is_under_attack = True
+                db.commit()
             _failed_logins[ip] = []  # Reset after logging
         return JSONResponse(status_code=401, content={"error": "Invalid credentials"})
 
@@ -424,26 +433,85 @@ async def bank_server_transfer(req: TransferRequest, request: Request, db: Sessi
             "status": "COMPLETED",
         }
     else:
-        # REAL MODE — check balance and deduct
+        # REAL MODE — check balance, deduct from sender, credit receiver, record transaction
         account = db.query(BankAccount).filter(BankAccount.account_number == req.from_account).first()
         if not account:
             return JSONResponse(status_code=400, content={"success": False, "error": "Account not found"})
+        if account.is_frozen:
+            return JSONResponse(status_code=403, content={"success": False, "error": f"Account {account.account_number} ({account.holder_name}) is FROZEN. Transfers blocked."})
         if req.amount > account.balance:
             return JSONResponse(status_code=400, content={
                 "success": False,
                 "error": f"Insufficient balance. Available: ₹{account.balance:,.2f}, Requested: ₹{req.amount:,.2f}"
             })
-        # Deduct balance
+
+        tx_id = f"TXN-{uuid.uuid4().hex[:8].upper()}"
+
+        # Deduct from sender
         account.balance -= req.amount
+
+        # Credit receiver if they exist in the system
+        receiver = db.query(BankAccount).filter(BankAccount.account_number == req.to_account).first()
+        if receiver:
+            receiver.balance += req.amount
+
+        # Record the transaction
+        txn = BankTransaction(
+            tx_id=tx_id,
+            from_account=req.from_account,
+            from_name=account.holder_name,
+            to_account=req.to_account,
+            to_name=req.to_name,
+            amount=req.amount,
+            method=req.method,
+            status="COMPLETED",
+        )
+        db.add(txn)
         db.commit()
+
         return {
             "success": True,
-            "transaction_id": f"TXN-{uuid.uuid4().hex[:8].upper()}",
-            "message": "Transfer processed successfully",
+            "transaction_id": tx_id,
+            "message": f"₹{req.amount:,.2f} transferred to {req.to_name}" + (" (account credited)" if receiver else " (external account)"),
             "amount": req.amount,
             "new_balance": account.balance,
             "status": "COMPLETED",
         }
+
+
+# ── Transaction History ──────────────────────────────────────
+from sqlalchemy import or_
+
+@router.get("/bankserver/api/transactions/{account_number}")
+async def get_transactions(account_number: str, db: Session = Depends(get_db)):
+    """Get transaction history for a given account (as sender or receiver)."""
+    txns = (
+        db.query(BankTransaction)
+        .filter(
+            or_(
+                BankTransaction.from_account == account_number,
+                BankTransaction.to_account == account_number,
+            )
+        )
+        .order_by(BankTransaction.timestamp.desc())
+        .limit(50)
+        .all()
+    )
+    return [
+        {
+            "tx_id": t.tx_id,
+            "from_account": t.from_account,
+            "from_name": t.from_name,
+            "to_account": t.to_account,
+            "to_name": t.to_name,
+            "amount": t.amount,
+            "method": t.method,
+            "status": t.status,
+            "type": "DEBIT" if t.from_account == account_number else "CREDIT",
+            "timestamp": t.timestamp.isoformat() + "Z" if t.timestamp else "",
+        }
+        for t in txns
+    ]
 
 
 # ── Money Addon (Bank Official) ──────────────────────────────

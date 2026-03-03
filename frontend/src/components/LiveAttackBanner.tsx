@@ -205,8 +205,32 @@ export default function LiveAttackBanner() {
                         </div>
                         <div className="text-[10px] text-gray-400 mt-1 flex items-center gap-4" style={{ fontFamily: "JetBrains Mono, monospace" }}>
                             {state.accounts_under_attack.map((a) => (
-                                <span key={a.account_number} className="text-amber-400">
-                                    🏦 {a.holder_name} ({a.city})
+                                <span key={a.account_number} className="flex items-center gap-1.5">
+                                    <span className="text-amber-400">
+                                        🏦 {a.holder_name} ({a.city})
+                                    </span>
+                                    <button
+                                        onClick={async (e) => {
+                                            e.stopPropagation();
+                                            try {
+                                                await fetch(`${API_BASE}/api/v1/send-sus`, {
+                                                    method: "POST",
+                                                    headers: { "Content-Type": "application/json" },
+                                                    body: JSON.stringify({ account_number: a.account_number }),
+                                                });
+                                                poll();
+                                            } catch { /* ignore */ }
+                                        }}
+                                        className="px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer hover:scale-105"
+                                        style={{
+                                            background: "rgba(245, 158, 11, 0.2)",
+                                            border: "1px solid rgba(245, 158, 11, 0.5)",
+                                            color: "#f59e0b",
+                                            fontFamily: "JetBrains Mono, monospace",
+                                        }}
+                                    >
+                                        🚨 SEND SUS
+                                    </button>
                                 </span>
                             ))}
                             {transfers.length > 0 && (

@@ -16,7 +16,7 @@ from sqlalchemy import func, distinct
 from pydantic import BaseModel
 
 from database import get_db
-from models import Transaction, CyberLog, FrozenAccount, BankAccount, LiveAttackLog
+from models import Transaction, CyberLog, FrozenAccount, BankAccount, LiveAttackLog, LoginVerification
 
 router = APIRouter(prefix="/api/v1", tags=["Threats (SQL)"])
 
@@ -180,7 +180,11 @@ async def get_threats(db: Session = Depends(get_db)):
         "BRUTE_FORCE": "HIGH",
         "RAPID_TRANSFERS": "HIGH",
         "TRANSFER_ATTEMPT": "HIGH",
+        "UNAUTHORIZED_LOGIN": "HIGH",
         "GEO_ANOMALY": "MEDIUM",
+        "LOGIN_ATTEMPT": "MEDIUM",
+        "LOGIN_SUCCESS": "LOW",
+        "BALANCE_CHECK": "LOW",
     }
     _title_map = {
         "BRUTE_FORCE": "🔐 Brute Force Attack",
@@ -188,6 +192,10 @@ async def get_threats(db: Session = Depends(get_db)):
         "RAPID_TRANSFERS": "⚡ Rapid-Fire Transfers",
         "MULE_RING_DETECTED": "🕸️ Mule Ring Confirmed",
         "TRANSFER_ATTEMPT": "💸 Sandbox Transfer Captured",
+        "UNAUTHORIZED_LOGIN": "🚫 Unauthorized Login",
+        "LOGIN_ATTEMPT": "🔑 Login Attempt",
+        "LOGIN_SUCCESS": "✅ Login Success",
+        "BALANCE_CHECK": "👁️ Balance Check",
     }
 
     attack_logs = (
@@ -233,6 +241,110 @@ async def get_threats(db: Session = Depends(get_db)):
         ))
 
     return threats
+
+
+@router.post("/clear-threats")
+async def clear_all_threats(db: Session = Depends(get_db)):
+    """Clear all attack logs and reset all accounts to normal/idle state."""
+    # Delete all attack logs
+    attack_count = db.query(LiveAttackLog).delete()
+
+    # Reset all accounts to normal
+    db.query(BankAccount).filter(BankAccount.is_under_attack == True).update(
+        {"is_under_attack": False}, synchronize_session="fetch"
+    )
+
+    # Clear login verifications
+    db.query(LoginVerification).delete()
+
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"Cleared {attack_count} attack logs. All accounts reset to normal.",
+        "attacks_cleared": attack_count,
+    }
+
+
+# In-memory store for SUS-marked accounts
+_sus_accounts: list = []
+
+
+@router.post("/send-sus")
+async def send_sus(payload: dict, db: Session = Depends(get_db)):
+    """Mark an account as suspicious — moves it from Live Attack to Suspicious tab."""
+    account_number = payload.get("account_number")
+    if not account_number:
+        raise HTTPException(status_code=400, detail="account_number required")
+
+    account = db.query(BankAccount).filter(BankAccount.account_number == account_number).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    # Get all attack logs for this account
+    attacks = (
+        db.query(LiveAttackLog)
+        .filter(LiveAttackLog.target_account == account_number)
+        .order_by(LiveAttackLog.timestamp.desc())
+        .all()
+    )
+
+    # Build transactions list from attack logs
+    transactions = []
+    total_amount = 0
+    for atk in attacks:
+        if atk.event_type == "TRANSFER_ATTEMPT" and atk.amount:
+            total_amount += atk.amount
+            transactions.append({
+                "tx_id": atk.event_id,
+                "mule_account_number": atk.destination_account or "N/A",
+                "mule_bank_name": "Unknown Bank",
+                "mule_ifsc": "N/A",
+                "receiver_name": atk.destination_name or "Unknown",
+                "receiver_phone": "N/A",
+                "amount": atk.amount,
+                "currency": "INR",
+                "transfer_method": atk.transfer_method or "N/A",
+                "city": account.city or "Unknown",
+                "lat": 0,
+                "lon": 0,
+                "status": "INTERCEPTED",
+                "timestamp": atk.timestamp.isoformat() + "Z" if atk.timestamp else "",
+            })
+
+    # Build session object
+    session = {
+        "session_id": f"SUS-{account_number}",
+        "attacker_name": account.holder_name,
+        "attacker_phone": account.phone or "N/A",
+        "attacker_ip": attacks[0].attacker_ip if attacks else "Unknown",
+        "risk_factor": max([a.risk_score or 0.85 for a in attacks]) if attacks else 0.85,
+        "city": account.city or "Unknown",
+        "state": "India",
+        "duration_minutes": len(attacks) * 2,
+        "status": "TRAPPED",
+        "entry_time": attacks[-1].timestamp.isoformat() + "Z" if attacks else datetime.now(timezone.utc).isoformat(),
+        "tools_detected": "[]",
+        "total_attempted_amount": total_amount,
+        "transaction_count": len(transactions),
+        "transactions": transactions,
+    }
+
+    # Remove from active attack
+    account.is_under_attack = False
+    db.commit()
+
+    # Add to SUS list (avoid duplicates)
+    if not any(s["session_id"] == session["session_id"] for s in _sus_accounts):
+        _sus_accounts.append(session)
+
+    return {"success": True, "message": f"Account {account_number} sent to Suspicious tab.", "session": session}
+
+
+@router.get("/sandbox/sessions")
+async def get_sandbox_sessions(db: Session = Depends(get_db)):
+    """Return all suspicious sessions (accounts sent via Send SUS button)."""
+    return _sus_accounts
 
 
 @router.get("/threats/{threat_id}")
@@ -390,30 +502,81 @@ async def get_system_risk_score(db: Session = Depends(get_db)):
 
 @router.post("/freeze-accounts")
 async def freeze_accounts(payload: dict, db: Session = Depends(get_db)):
-    """Freeze accounts in the database."""
+    """Freeze accounts — blocks login/transfers and removes from Active Threats."""
     account_ids = payload.get("account_ids", [])
     if not account_ids:
         raise HTTPException(status_code=400, detail="No account IDs provided")
 
     frozen = []
     for aid in account_ids:
+        # Add to FrozenAccount table
         existing = db.query(FrozenAccount).filter(FrozenAccount.account_id == aid).first()
         if not existing:
             db.add(FrozenAccount(
                 account_id=aid,
                 frozen_by="SOC-AML Automated Framework",
-                reason="Pre-emptive freeze — mule ring detection",
+                reason="Pre-emptive freeze — threat detected",
             ))
-            frozen.append(aid)
+
+        # Actually freeze the BankAccount
+        account = db.query(BankAccount).filter(BankAccount.account_number == aid).first()
+        if account:
+            account.is_frozen = True
+            account.is_under_attack = False
+
+        # Delete all attack logs for this account so it clears from Active Threats
+        db.query(LiveAttackLog).filter(LiveAttackLog.target_account == aid).delete(synchronize_session="fetch")
+
+        frozen.append(aid)
 
     db.commit()
 
     return {
         "success": True,
         "frozen_accounts": frozen,
-        "message": f"Successfully frozen {len(frozen)} account(s). SAR filing initiated.",
+        "message": f"Successfully frozen {len(frozen)} account(s). All related threats cleared.",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@router.get("/frozen-accounts")
+async def get_frozen_accounts(db: Session = Depends(get_db)):
+    """Get all frozen bank accounts with their details."""
+    accounts = db.query(BankAccount).filter(BankAccount.is_frozen == True).all()
+    result = []
+    for a in accounts:
+        frozen_rec = db.query(FrozenAccount).filter(FrozenAccount.account_id == a.account_number).first()
+        result.append({
+            "account_number": a.account_number,
+            "holder_name": a.holder_name,
+            "phone": a.phone or "N/A",
+            "email": a.email or "N/A",
+            "city": a.city,
+            "balance": a.balance,
+            "ifsc": a.ifsc,
+            "frozen_by": frozen_rec.frozen_by if frozen_rec else "SOC System",
+            "reason": frozen_rec.reason if frozen_rec else "Threat detected",
+            "frozen_at": frozen_rec.frozen_at.isoformat() + "Z" if frozen_rec and frozen_rec.frozen_at else "",
+        })
+    return result
+
+
+@router.post("/unfreeze")
+async def unfreeze_account(payload: dict, db: Session = Depends(get_db)):
+    """Unfreeze an account — restores login and transfer access."""
+    account_number = payload.get("account_number")
+    if not account_number:
+        raise HTTPException(status_code=400, detail="account_number required")
+
+    account = db.query(BankAccount).filter(BankAccount.account_number == account_number).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    account.is_frozen = False
+    db.query(FrozenAccount).filter(FrozenAccount.account_id == account_number).delete(synchronize_session="fetch")
+    db.commit()
+
+    return {"success": True, "message": f"Account {account_number} ({account.holder_name}) has been unfrozen."}
 
 
 @router.get("/city-stats")

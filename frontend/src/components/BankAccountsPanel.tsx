@@ -16,10 +16,24 @@ interface BankAccount {
     created_at: string;
 }
 
+interface TxRecord {
+    tx_id: string;
+    from_account: string;
+    from_name: string;
+    to_account: string;
+    to_name: string;
+    amount: number;
+    method: string;
+    status: string;
+    type: "DEBIT" | "CREDIT";
+    timestamp: string;
+}
+
 export default function BankAccountsPanel() {
     const [accounts, setAccounts] = useState<BankAccount[]>([]);
     const [selected, setSelected] = useState<BankAccount | null>(null);
     const [report, setReport] = useState("");
+    const [transactions, setTransactions] = useState<TxRecord[]>([]);
     const [loading, setLoading] = useState(false);
     const [fetching, setFetching] = useState(true);
 
@@ -43,7 +57,15 @@ export default function BankAccountsPanel() {
     async function analyzeAccount(acct: BankAccount) {
         setSelected(acct);
         setReport("");
+        setTransactions([]);
         setLoading(true);
+
+        // Fetch transactions in parallel with AI report
+        try {
+            const txRes = await fetch(`${API}/bankserver/api/transactions/${acct.account_number}`);
+            if (txRes.ok) setTransactions(await txRes.json());
+        } catch { /* silent */ }
+
         try {
             const res = await fetch(`${API}/api/v1/account-report`, {
                 method: "POST",
@@ -84,8 +106,8 @@ export default function BankAccountsPanel() {
                             key={acct.account_number}
                             onClick={() => analyzeAccount(acct)}
                             className={`w-full text-left px-4 py-3 transition-all duration-200 cursor-pointer ${selected?.account_number === acct.account_number
-                                    ? "bg-blue-900/30 border-l-3 border-l-blue-400"
-                                    : "hover:bg-gray-800/60"
+                                ? "bg-blue-900/30 border-l-3 border-l-blue-400"
+                                : "hover:bg-gray-800/60"
                                 }`}
                             style={{ animation: `slide-in-up 0.3s ease-out ${idx * 0.05}s both` }}
                         >
@@ -216,6 +238,61 @@ export default function BankAccountsPanel() {
                                     <p className="text-[8px] text-gray-500 uppercase">City</p>
                                     <p className="text-[10px] text-gray-300 font-medium">{selected.city}</p>
                                 </div>
+                            </div>
+
+                            {/* Transaction History */}
+                            <div className="bg-gray-800/40 border border-blue-800/30 rounded-lg p-4 mb-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <span className="text-xs">📒</span>
+                                    <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wider"
+                                        style={{ fontFamily: "JetBrains Mono, monospace" }}>Transaction History</p>
+                                    <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded-full border border-blue-700/50 bg-blue-900/30 text-blue-400"
+                                        style={{ fontFamily: "JetBrains Mono, monospace" }}>
+                                        {transactions.length} records
+                                    </span>
+                                </div>
+                                {transactions.length === 0 ? (
+                                    <p className="text-[10px] text-gray-500 text-center py-4">No transactions yet</p>
+                                ) : (
+                                    <div className="overflow-x-auto max-h-[180px] overflow-y-auto">
+                                        <table className="w-full text-[10px]" style={{ fontFamily: "JetBrains Mono, monospace" }}>
+                                            <thead>
+                                                <tr className="text-gray-500 uppercase tracking-wider border-b border-gray-700">
+                                                    <th className="text-left py-1.5 pr-2">Type</th>
+                                                    <th className="text-left py-1.5 pr-2">Counterparty</th>
+                                                    <th className="text-right py-1.5 pr-2">Amount</th>
+                                                    <th className="text-left py-1.5 pr-2">Method</th>
+                                                    <th className="text-left py-1.5">Time</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-800/50">
+                                                {transactions.map((tx) => (
+                                                    <tr key={tx.tx_id} className="hover:bg-gray-800/30">
+                                                        <td className="py-1.5 pr-2">
+                                                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${tx.type === "DEBIT"
+                                                                    ? "bg-red-900/30 text-red-400 border border-red-700/30"
+                                                                    : "bg-green-900/30 text-green-400 border border-green-700/30"
+                                                                }`}>
+                                                                {tx.type === "DEBIT" ? "↑ DEBIT" : "↓ CREDIT"}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-1.5 pr-2 text-gray-300">
+                                                            {tx.type === "DEBIT" ? tx.to_name : tx.from_name}
+                                                            <span className="text-gray-500 ml-1">({tx.type === "DEBIT" ? tx.to_account : tx.from_account})</span>
+                                                        </td>
+                                                        <td className={`py-1.5 pr-2 text-right font-bold ${tx.type === "DEBIT" ? "text-red-400" : "text-green-400"}`}>
+                                                            {tx.type === "DEBIT" ? "-" : "+"}₹{Number(tx.amount).toLocaleString("en-IN")}
+                                                        </td>
+                                                        <td className="py-1.5 pr-2 text-gray-400">{tx.method || "—"}</td>
+                                                        <td className="py-1.5 text-gray-500">
+                                                            {new Date(tx.timestamp).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
                             </div>
 
                             {/* AI Report */}
